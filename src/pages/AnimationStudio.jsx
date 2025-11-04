@@ -13,8 +13,10 @@ export default function AnimationStudio() {
   const [copiedTransition, setCopiedTransition] = useState(null);
   const [draggingId, setDraggingId] = useState(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [dragStartPositions, setDragStartPositions] = useState({});
   const [selectionBox, setSelectionBox] = useState(null);
   const [selectionStart, setSelectionStart] = useState(null);
+  const [copiedObjects, setCopiedObjects] = useState(null);
   const animationRef = useRef(null);
   const canvasRef = useRef(null);
 
@@ -56,17 +58,41 @@ export default function AnimationStudio() {
   const handleContextMenu = (e, objId, transIndex) => {
     e.preventDefault();
     e.stopPropagation();
-    setContextMenu({ x: e.clientX, y: e.clientY, objId, transIndex });
-    if (!selectedIds.includes(objId)) {
+    setContextMenu({ x: e.clientX, y: e.clientY, objId, transIndex, isObject: objId && transIndex === undefined });
+    if (objId && !selectedIds.includes(objId)) {
       setSelectedIds([objId]);
     }
-    setSelectedTransitionIndex(transIndex);
+    if (transIndex !== undefined) {
+      setSelectedTransitionIndex(transIndex);
+    }
   };
 
   const closeContextMenu = () => setContextMenu(null);
 
   const openTransitionModal = () => {
     setShowTransitionModal(true);
+    closeContextMenu();
+  };
+
+  const copyObjects = () => {
+    if (selectedIds.length === 0) return;
+    const objectsToCopy = objects.filter(obj => selectedIds.includes(obj.id));
+    setCopiedObjects(JSON.parse(JSON.stringify(objectsToCopy)));
+    closeContextMenu();
+  };
+
+  const pasteObjects = () => {
+    if (!copiedObjects) return;
+    
+    const newObjects = copiedObjects.map(obj => ({
+      ...obj,
+      id: `obj_${Date.now()}_${Math.random()}`,
+      name: `${obj.name}_copy`,
+      transitions: obj.transitions.map(t => ({ ...t, x: t.x + 50, y: t.y + 50 }))
+    }));
+    
+    setObjects([...objects, ...newObjects]);
+    setSelectedIds(newObjects.map(o => o.id));
     closeContextMenu();
   };
 
@@ -164,6 +190,11 @@ export default function AnimationStudio() {
   };
 
   const getObjectStateAtTime = (obj, time) => {
+    // If we're before the first transition starts, return the initial state
+    if (time < obj.transitions[0].startTime) {
+      return obj.transitions[0];
+    }
+    
     let currentTransition = obj.transitions[0];
     let nextTransition = null;
     
@@ -270,6 +301,15 @@ export default function AnimationStudio() {
       const trans = obj.transitions[transIndex];
       const rect = canvasRef.current.getBoundingClientRect();
       setDragOffset({ x: e.clientX - rect.left - trans.x, y: e.clientY - rect.top - trans.y });
+      
+      // Store initial positions for all selected objects
+      const positions = {};
+      selectedIds.forEach(id => {
+        const selectedObj = objects.find(o => o.id === id);
+        const selectedTrans = selectedObj.transitions[transIndex] || selectedObj.transitions[selectedObj.transitions.length - 1];
+        positions[id] = { x: selectedTrans.x, y: selectedTrans.y };
+      });
+      setDragStartPositions(positions);
     }
   };
 
@@ -278,23 +318,23 @@ export default function AnimationStudio() {
     
     const [objId, transIndex] = draggingId.split('-');
     const rect = canvasRef.current.getBoundingClientRect();
-    const newX = e.clientX - rect.left - dragOffset.x;
-    const newY = e.clientY - rect.top - dragOffset.y;
+    const currentX = e.clientX - rect.left - dragOffset.x;
+    const currentY = e.clientY - rect.top - dragOffset.y;
     
     if (selectedIds.length > 1 && selectedIds.includes(objId)) {
-      const draggedObj = objects.find(o => o.id === objId);
-      const draggedTrans = draggedObj.transitions[parseInt(transIndex)];
-      const deltaX = newX - draggedTrans.x;
-      const deltaY = newY - draggedTrans.y;
+      const originalPos = dragStartPositions[objId];
+      const deltaX = currentX - originalPos.x;
+      const deltaY = currentY - originalPos.y;
       
       selectedIds.forEach(id => {
         const obj = objects.find(o => o.id === id);
         const trans = obj.transitions[parseInt(transIndex)] || obj.transitions[obj.transitions.length - 1];
         const idx = obj.transitions.indexOf(trans);
-        updateTransition(id, idx, { x: trans.x + deltaX, y: trans.y + deltaY });
+        const startPos = dragStartPositions[id];
+        updateTransition(id, idx, { x: startPos.x + deltaX, y: startPos.y + deltaY });
       });
     } else {
-      updateTransition(objId, parseInt(transIndex), { x: newX, y: newY });
+      updateTransition(objId, parseInt(transIndex), { x: currentX, y: currentY });
     }
   };
 
@@ -309,13 +349,27 @@ export default function AnimationStudio() {
         window.removeEventListener('mouseup', handleMouseUp);
       };
     }
-  }, [draggingId, dragOffset, selectedIds, objects]);
+  }, [draggingId, dragOffset, selectedIds, objects, dragStartPositions]);
 
   useEffect(() => {
     const handleClick = () => closeContextMenu();
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+        e.preventDefault();
+        copyObjects();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+        e.preventDefault();
+        pasteObjects();
+      }
+    };
     window.addEventListener('click', handleClick);
-    return () => window.removeEventListener('click', handleClick);
-  }, []);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('click', handleClick);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [selectedIds, objects, copiedObjects]);
 
   const togglePlay = () => {
     if (isPlaying) {
@@ -459,7 +513,7 @@ export default function AnimationStudio() {
       <div className="flex items-center justify-between p-4 bg-gray-800 border-b border-gray-700">
         <h1 className="text-xl font-bold">Animation Studio</h1>
         <div className="flex gap-2">
-          <span className="text-sm text-gray-400 self-center">Ctrl+Click for multi-select | Drag on canvas to select area</span>
+          <span className="text-sm text-gray-400 self-center">Ctrl+Click multi-select | Drag canvas to select | Ctrl+C/V to copy/paste</span>
           <button onClick={exportAnimation} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded">
             <Download size={18} />
             Export JSON
@@ -490,7 +544,21 @@ export default function AnimationStudio() {
           <div>
             <h2 className="text-sm font-semibold mb-2">Objects ({selectedIds.length} selected)</h2>
             {objects.map(obj => (
-              <div key={obj.id} className={`flex items-center justify-between p-2 mb-1 rounded cursor-pointer ${selectedIds.includes(obj.id) ? 'bg-gray-700' : 'bg-gray-750 hover:bg-gray-700'}`} onClick={(e) => { if (e.ctrlKey || e.metaKey) { if (selectedIds.includes(obj.id)) { setSelectedIds(selectedIds.filter(id => id !== obj.id)); } else { setSelectedIds([...selectedIds, obj.id]); } } else { setSelectedIds([obj.id]); setSelectedTransitionIndex(obj.transitions.length - 1); } }}>
+              <div key={obj.id} className={`flex items-center justify-between p-2 mb-1 rounded cursor-pointer ${selectedIds.includes(obj.id) ? 'bg-gray-700' : 'bg-gray-750 hover:bg-gray-700'}`} 
+                onClick={(e) => { 
+                  if (e.ctrlKey || e.metaKey) { 
+                    if (selectedIds.includes(obj.id)) { 
+                      setSelectedIds(selectedIds.filter(id => id !== obj.id)); 
+                    } else { 
+                      setSelectedIds([...selectedIds, obj.id]); 
+                    } 
+                  } else { 
+                    setSelectedIds([obj.id]); 
+                    setSelectedTransitionIndex(obj.transitions.length - 1); 
+                  } 
+                }}
+                onContextMenu={(e) => handleContextMenu(e, obj.id, undefined)}
+              >
                 <span className="text-sm">{obj.name}</span>
                 <button onClick={(e) => { e.stopPropagation(); deleteObject(obj.id); }} className="text-red-400 hover:text-red-300"><Trash2 size={16} /></button>
               </div>
@@ -606,9 +674,18 @@ export default function AnimationStudio() {
 
       {contextMenu && (
         <div className="fixed bg-gray-800 border border-gray-700 rounded shadow-lg py-1 z-50" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(e) => e.stopPropagation()}>
-          <button onClick={openTransitionModal} className="w-full px-4 py-2 text-left text-sm hover:bg-gray-700">Add Transition</button>
-          <button onClick={copyTransition} className="w-full px-4 py-2 text-left text-sm hover:bg-gray-700">Copy Transition</button>
-          {copiedTransition && <button onClick={pasteTransition} className="w-full px-4 py-2 text-left text-sm hover:bg-gray-700">Paste Transition</button>}
+          {contextMenu.isObject ? (
+            <>
+              <button onClick={copyObjects} className="w-full px-4 py-2 text-left text-sm hover:bg-gray-700">Copy Object(s)</button>
+              {copiedObjects && <button onClick={pasteObjects} className="w-full px-4 py-2 text-left text-sm hover:bg-gray-700">Paste Object(s)</button>}
+            </>
+          ) : (
+            <>
+              <button onClick={openTransitionModal} className="w-full px-4 py-2 text-left text-sm hover:bg-gray-700">Add Transition</button>
+              <button onClick={copyTransition} className="w-full px-4 py-2 text-left text-sm hover:bg-gray-700">Copy Transition</button>
+              {copiedTransition && <button onClick={pasteTransition} className="w-full px-4 py-2 text-left text-sm hover:bg-gray-700">Paste Transition</button>}
+            </>
+          )}
         </div>
       )}
 
