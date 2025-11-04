@@ -1,37 +1,37 @@
-# 🎨 Animation Studio
+# Animation Studio
 
 **Animation Studio** is a React-based web application that allows educators and creators to design interactive canvas animations using simple drag-and-drop tools.  
 Users can add shapes (circle, square, triangle, text), customize their properties (size, color, position), and animate them with smooth transitions along a timeline.
 
 ---
 
-## 🚀 Features
+## Features
 
-- 🟢 **Canvas Editor**
+- **Canvas Editor**
   - Drag, move, and resize objects directly on the canvas.
   - Add geometric shapes and text elements.
   - Multi-selection support (select multiple objects at once).
 
-- ⚙️ **Shape Customization**
+- **Shape Customization**
   - Adjust size, color, and position of each shape.
   - Change text content dynamically.
 
-- 🎬 **Animation Timeline**
+- **Animation Timeline**
   - Add transitions (move, scale, rotate, color change).
   - Play, pause, and stop animations in real-time.
   - Timeline visualization of keyframes and transitions.
 
-- 💾 **Project Management**
+- **Project Management**
   - Save and load animations from local storage or backend (if connected).
   - Delete or reset current projects.
 
-- 🧩 **Responsive Interface**
+- **Responsive Interface**
   - Clean and minimal UI using Tailwind CSS.
   - Dark theme with clear layout for better workflow.
 
 ---
 
-## 🧠 Tech Stack
+## Tech Stack
 
 | Technology | Purpose |
 |-------------|----------|
@@ -44,7 +44,7 @@ Users can add shapes (circle, square, triangle, text), customize their propertie
 
 ---
 
-## 🛠️ Installation & Setup
+## Installation & Setup
 
 ### 1. Clone the repository
 ```bash
