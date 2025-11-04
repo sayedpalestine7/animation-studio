@@ -13,6 +13,8 @@ export default function AnimationStudio() {
   const [copiedTransition, setCopiedTransition] = useState(null);
   const [draggingId, setDraggingId] = useState(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [selectionBox, setSelectionBox] = useState(null);
+  const [selectionStart, setSelectionStart] = useState(null);
   const animationRef = useRef(null);
   const canvasRef = useRef(null);
 
@@ -30,10 +32,12 @@ export default function AnimationStudio() {
           duration: 0,
           x: 250,
           y: 200,
+          width: type === 'rectangle' ? 100 : null,
+          height: type === 'rectangle' ? 60 : null,
           scale: 1,
           rotation: 0,
           opacity: 1,
-          color: type === 'circle' ? '#3b82f6' : type === 'square' ? '#ef4444' : '#10b981',
+          color: type === 'circle' ? '#3b82f6' : type === 'square' ? '#ef4444' : type === 'triangle' ? '#10b981' : '#f59e0b',
           text: '',
           easing: 'linear'
         }
@@ -83,7 +87,7 @@ export default function AnimationStudio() {
     const newTransition = {
       ...copiedTransition,
       startTime: newStartTime,
-      x: lastTransition.x + 100,
+      x: lastTransition.x,
       y: lastTransition.y
     };
     
@@ -104,6 +108,8 @@ export default function AnimationStudio() {
         duration: transitionDuration,
         x: lastTransition.x,
         y: lastTransition.y,
+        width: lastTransition.width,
+        height: lastTransition.height,
         scale: lastTransition.scale,
         rotation: lastTransition.rotation,
         opacity: lastTransition.opacity,
@@ -153,7 +159,7 @@ export default function AnimationStudio() {
       return obj;
     }));
     if (selectedTransitionIndex === transIndex) {
-      setSelectedTransitionIndex(Math.max(0, transIqndex - 1));
+      setSelectedTransitionIndex(Math.max(0, transIndex - 1));
     }
   };
 
@@ -182,6 +188,8 @@ export default function AnimationStudio() {
     return {
       x: currentTransition.x + (nextTransition.x - currentTransition.x) * easedProgress,
       y: currentTransition.y + (nextTransition.y - currentTransition.y) * easedProgress,
+      width: currentTransition.width,
+      height: currentTransition.height,
       scale: currentTransition.scale + (nextTransition.scale - currentTransition.scale) * easedProgress,
       rotation: currentTransition.rotation + (nextTransition.rotation - currentTransition.rotation) * easedProgress,
       opacity: currentTransition.opacity + (nextTransition.opacity - currentTransition.opacity) * easedProgress,
@@ -198,6 +206,47 @@ export default function AnimationStudio() {
       case 'bounce': return Math.sin(t * Math.PI);
       default: return t;
     }
+  };
+
+  const handleCanvasMouseDown = (e) => {
+    if (e.target === canvasRef.current && !isPlaying) {
+      const rect = canvasRef.current.getBoundingClientRect();
+      setSelectionStart({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+      setSelectionBox({ x: e.clientX - rect.left, y: e.clientY - rect.top, width: 0, height: 0 });
+    }
+  };
+
+  const handleCanvasMouseMove = (e) => {
+    if (selectionStart && !isPlaying) {
+      const rect = canvasRef.current.getBoundingClientRect();
+      const currentX = e.clientX - rect.left;
+      const currentY = e.clientY - rect.top;
+      
+      const x = Math.min(selectionStart.x, currentX);
+      const y = Math.min(selectionStart.y, currentY);
+      const width = Math.abs(currentX - selectionStart.x);
+      const height = Math.abs(currentY - selectionStart.y);
+      
+      setSelectionBox({ x, y, width, height });
+    }
+  };
+
+  const handleCanvasMouseUp = () => {
+    if (selectionBox && selectionBox.width > 5 && selectionBox.height > 5) {
+      const selected = objects.filter(obj => {
+        const lastTrans = obj.transitions[obj.transitions.length - 1];
+        return (
+          lastTrans.x >= selectionBox.x &&
+          lastTrans.x <= selectionBox.x + selectionBox.width &&
+          lastTrans.y >= selectionBox.y &&
+          lastTrans.y <= selectionBox.y + selectionBox.height
+        );
+      }).map(obj => obj.id);
+      
+      setSelectedIds(selected);
+    }
+    setSelectionStart(null);
+    setSelectionBox(null);
   };
 
   const handleMouseDown = (e, objId, transIndex) => {
@@ -232,7 +281,21 @@ export default function AnimationStudio() {
     const newX = e.clientX - rect.left - dragOffset.x;
     const newY = e.clientY - rect.top - dragOffset.y;
     
-    updateTransition(objId, parseInt(transIndex), { x: newX, y: newY });
+    if (selectedIds.length > 1 && selectedIds.includes(objId)) {
+      const draggedObj = objects.find(o => o.id === objId);
+      const draggedTrans = draggedObj.transitions[parseInt(transIndex)];
+      const deltaX = newX - draggedTrans.x;
+      const deltaY = newY - draggedTrans.y;
+      
+      selectedIds.forEach(id => {
+        const obj = objects.find(o => o.id === id);
+        const trans = obj.transitions[parseInt(transIndex)] || obj.transitions[obj.transitions.length - 1];
+        const idx = obj.transitions.indexOf(trans);
+        updateTransition(id, idx, { x: trans.x + deltaX, y: trans.y + deltaY });
+      });
+    } else {
+      updateTransition(objId, parseInt(transIndex), { x: newX, y: newY });
+    }
   };
 
   const handleMouseUp = () => setDraggingId(null);
@@ -246,7 +309,7 @@ export default function AnimationStudio() {
         window.removeEventListener('mouseup', handleMouseUp);
       };
     }
-  }, [draggingId, dragOffset]);
+  }, [draggingId, dragOffset, selectedIds, objects]);
 
   useEffect(() => {
     const handleClick = () => closeContextMenu();
@@ -304,7 +367,7 @@ export default function AnimationStudio() {
     const points = obj.transitions.map(t => ({ x: t.x, y: t.y }));
     
     return (
-      <svg className="absolute inset-0 pointer-events-none" style={{ width: '100%', height: '100%' }}>
+      <svg key={`trail-${obj.id}`} className="absolute inset-0 pointer-events-none" style={{ width: '100%', height: '100%' }}>
         {points.map((point, i) => {
           if (i === points.length - 1) return null;
           const nextPoint = points[i + 1];
@@ -333,19 +396,56 @@ export default function AnimationStudio() {
       fontSize: `${12 * state.scale}px`,
       fontWeight: 'bold',
       color: 'white',
-      textShadow: '0 0 3px rgba(0,0,0,0.8)',
-      userSelect: 'none'
+      textShadow: '1px 1px 2px rgba(0,0,0,0.8)',
+      userSelect: 'none',
+      pointerEvents: isGhost ? 'auto' : 'auto'
     };
 
     const textContent = state.text || '';
 
     if (obj.type === 'circle') {
-      return <div style={{ ...baseStyle, width: size, height: size, borderRadius: '50%', backgroundColor: state.color, border: borderStyle }} onMouseDown={(e) => handleMouseDown(e, obj.id, transIndex)} onContextMenu={(e) => handleContextMenu(e, obj.id, transIndex)}>{textContent}</div>;
+      return (
+        <div 
+          key={`${obj.id}-${transIndex}-${isGhost}`}
+          style={{ ...baseStyle, width: size, height: size, borderRadius: '50%', backgroundColor: state.color, border: borderStyle }} 
+          onMouseDown={(e) => handleMouseDown(e, obj.id, transIndex)} 
+          onContextMenu={(e) => handleContextMenu(e, obj.id, transIndex)}
+        >
+          {textContent}
+        </div>
+      );
     } else if (obj.type === 'square') {
-      return <div style={{ ...baseStyle, width: size, height: size, backgroundColor: state.color, border: borderStyle }} onMouseDown={(e) => handleMouseDown(e, obj.id, transIndex)} onContextMenu={(e) => handleContextMenu(e, obj.id, transIndex)}>{textContent}</div>;
+      return (
+        <div 
+          key={`${obj.id}-${transIndex}-${isGhost}`}
+          style={{ ...baseStyle, width: size, height: size, backgroundColor: state.color, border: borderStyle }} 
+          onMouseDown={(e) => handleMouseDown(e, obj.id, transIndex)} 
+          onContextMenu={(e) => handleContextMenu(e, obj.id, transIndex)}
+        >
+          {textContent}
+        </div>
+      );
+    } else if (obj.type === 'rectangle') {
+      const width = (state.width || 100) * state.scale;
+      const height = (state.height || 60) * state.scale;
+      return (
+        <div 
+          key={`${obj.id}-${transIndex}-${isGhost}`}
+          style={{ ...baseStyle, width, height, backgroundColor: state.color, border: borderStyle }} 
+          onMouseDown={(e) => handleMouseDown(e, obj.id, transIndex)} 
+          onContextMenu={(e) => handleContextMenu(e, obj.id, transIndex)}
+        >
+          {textContent}
+        </div>
+      );
     } else {
       return (
-        <div style={{ ...baseStyle }} onMouseDown={(e) => handleMouseDown(e, obj.id, transIndex)} onContextMenu={(e) => handleContextMenu(e, obj.id, transIndex)}>
+        <div 
+          key={`${obj.id}-${transIndex}-${isGhost}`}
+          style={{ ...baseStyle }} 
+          onMouseDown={(e) => handleMouseDown(e, obj.id, transIndex)} 
+          onContextMenu={(e) => handleContextMenu(e, obj.id, transIndex)}
+        >
           <div style={{ width: 0, height: 0, borderLeft: `${size/2}px solid transparent`, borderRight: `${size/2}px solid transparent`, borderBottom: `${size}px solid ${state.color}`, position: 'relative' }}>
             <span style={{ position: 'absolute', left: '50%', top: `${size * 0.4}px`, transform: 'translateX(-50%)', whiteSpace: 'nowrap' }}>{textContent}</span>
           </div>
@@ -359,7 +459,7 @@ export default function AnimationStudio() {
       <div className="flex items-center justify-between p-4 bg-gray-800 border-b border-gray-700">
         <h1 className="text-xl font-bold">Animation Studio</h1>
         <div className="flex gap-2">
-          <span className="text-sm text-gray-400 self-center">Ctrl+Click for multi-select</span>
+          <span className="text-sm text-gray-400 self-center">Ctrl+Click for multi-select | Drag on canvas to select area</span>
           <button onClick={exportAnimation} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded">
             <Download size={18} />
             Export JSON
@@ -371,10 +471,19 @@ export default function AnimationStudio() {
         <div className="w-64 bg-gray-800 border-r border-gray-700 p-4 overflow-y-auto">
           <div className="mb-4">
             <h2 className="text-sm font-semibold mb-2">Add Shapes</h2>
-            <div className="flex gap-2">
-              <button onClick={() => addObject('circle')} className="p-2 bg-blue-600 hover:bg-blue-700 rounded"><Circle size={20} /></button>
-              <button onClick={() => addObject('square')} className="p-2 bg-red-600 hover:bg-red-700 rounded"><Square size={20} /></button>
-              <button onClick={() => addObject('triangle')} className="p-2 bg-green-600 hover:bg-green-700 rounded"><Triangle size={20} /></button>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => addObject('circle')} className="p-2 bg-blue-600 hover:bg-blue-700 rounded flex items-center justify-center">
+                <Circle size={20} />
+              </button>
+              <button onClick={() => addObject('square')} className="p-2 bg-red-600 hover:bg-red-700 rounded flex items-center justify-center">
+                <Square size={20} />
+              </button>
+              <button onClick={() => addObject('triangle')} className="p-2 bg-green-600 hover:bg-green-700 rounded flex items-center justify-center">
+                <Triangle size={20} />
+              </button>
+              <button onClick={() => addObject('rectangle')} className="p-2 bg-orange-600 hover:bg-orange-700 rounded text-xs">
+                Rect
+              </button>
             </div>
           </div>
 
@@ -390,19 +499,42 @@ export default function AnimationStudio() {
         </div>
 
         <div className="flex-1 flex flex-col">
-          <div ref={canvasRef} className="flex-1 bg-gray-700 relative overflow-hidden">
+          <div 
+            ref={canvasRef} 
+            className="flex-1 bg-gray-700 relative overflow-hidden"
+            onMouseDown={handleCanvasMouseDown}
+            onMouseMove={handleCanvasMouseMove}
+            onMouseUp={handleCanvasMouseUp}
+          >
             {objects.map(obj => renderMotionTrail(obj))}
+            
             {objects.map(obj => {
-              const lastTransIndex = obj.transitions.length - 1;
-              const currentState = obj.transitions[lastTransIndex];
-              const prevState = lastTransIndex > 0 ? obj.transitions[lastTransIndex - 1] : null;
+              const allTransitions = obj.transitions.map((trans, idx) => ({ trans, idx }));
+              
               return (
                 <React.Fragment key={obj.id}>
-                  {prevState && !isPlaying && <div>{renderShape(obj, prevState, true, lastTransIndex - 1)}</div>}
-                  {renderShape(obj, isPlaying ? getObjectStateAtTime(obj, currentTime) : currentState, false, lastTransIndex)}
+                  {!isPlaying && allTransitions.slice(0, -1).map(({ trans, idx }) => (
+                    renderShape(obj, trans, true, idx)
+                  ))}
+                  {renderShape(obj, isPlaying ? getObjectStateAtTime(obj, currentTime) : obj.transitions[obj.transitions.length - 1], false, obj.transitions.length - 1)}
                 </React.Fragment>
               );
             })}
+            
+            {selectionBox && (
+              <div 
+                style={{
+                  position: 'absolute',
+                  left: selectionBox.x,
+                  top: selectionBox.y,
+                  width: selectionBox.width,
+                  height: selectionBox.height,
+                  border: '2px dashed #3b82f6',
+                  backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                  pointerEvents: 'none'
+                }}
+              />
+            )}
           </div>
 
           <div className="h-48 bg-gray-800 border-t border-gray-700 p-4">
@@ -434,8 +566,20 @@ export default function AnimationStudio() {
               <div className="space-y-3">
                 <div>
                   <label className="block text-xs mb-1">Text</label>
-                  <input type="text" value={selectedObject.transitions[selectedTransitionIndex].text || ''} onChange={(e) => updateTransition(selectedObject.id, selectedTransitionIndex, { text: e.target.value })} className="w-full px-3 py-2 bg-gray-700 rounded text-white" placeholder="Enter text..." />
+                  <input type="text" value={selectedObject.transitions[selectedTransitionIndex].text || ''} onChange={(e) => updateTransition(selectedObject.id, selectedTransitionIndex, { text: e.target.value })} className="w-full px-3 py-2 bg-gray-700 rounded text-white text-sm" placeholder="Enter text..." />
                 </div>
+                {selectedObject.type === 'rectangle' && (
+                  <>
+                    <div>
+                      <label className="block text-xs mb-1">Width: {selectedObject.transitions[selectedTransitionIndex].width || 100}</label>
+                      <input type="range" min="20" max="300" value={selectedObject.transitions[selectedTransitionIndex].width || 100} onChange={(e) => updateTransition(selectedObject.id, selectedTransitionIndex, { width: parseInt(e.target.value) })} className="w-full" />
+                    </div>
+                    <div>
+                      <label className="block text-xs mb-1">Height: {selectedObject.transitions[selectedTransitionIndex].height || 60}</label>
+                      <input type="range" min="20" max="300" value={selectedObject.transitions[selectedTransitionIndex].height || 60} onChange={(e) => updateTransition(selectedObject.id, selectedTransitionIndex, { height: parseInt(e.target.value) })} className="w-full" />
+                    </div>
+                  </>
+                )}
                 <div>
                   <label className="block text-xs mb-1">Scale: {selectedObject.transitions[selectedTransitionIndex].scale.toFixed(1)}</label>
                   <input type="range" min="0.1" max="3" step="0.1" value={selectedObject.transitions[selectedTransitionIndex].scale} onChange={(e) => updateTransition(selectedObject.id, selectedTransitionIndex, { scale: parseFloat(e.target.value) })} className="w-full" />
