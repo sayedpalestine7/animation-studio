@@ -1,14 +1,12 @@
 import { useState } from 'react'
-import AnimationStudio from './pages/AnimationStudio.jsx';
+import AnimationStudio from './pages/AnimationStudio.jsx'
+import ErrorBoundary from './components/ErrorBoundary.jsx'
 
 function App() {
-  const [count, setCount] = useState(0)
-
   return (
-    <>
+    <ErrorBoundary>
       <AnimationStudio />
-    </>
+    </ErrorBoundary>
   )
 }
-
 export default App
